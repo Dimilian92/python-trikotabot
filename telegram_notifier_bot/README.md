@@ -8,6 +8,7 @@ Python Telegram bot that sends scheduled notifications to any chat where notific
 - Disable notifications in a chat with `/disable_notifications`.
 - Show configured rules with `/rules`.
 - Send a test message immediately with `/sendnow <rule_name>`.
+- Includes a daily `cat_of_the_day` nomination at `10:00` with a random image from the query `funny cat mem`.
 
 ## 1) Create your bot token
 1. Open Telegram and chat with `@BotFather`.
@@ -34,6 +35,7 @@ Current defaults include your example:
 - `@lyda` Monday-Friday at `18:00` -> `Please check out`
 - `@vio` Monday-Friday at `11:00` -> `Please drink colagen`
 - `@vio` Monday-Friday at `18:00` -> `time to drop all and walk`
+- `cat_of_the_day` daily at `10:00` -> random nominee (`@vio` or `@lyda`) and random cat image
 
 Timezone is controlled by:
 ```python
@@ -54,6 +56,7 @@ python bot.py
 - `/start`
 - `/enable_notifications`
 - `/disable_notifications`
+- `/notifications_status`
 - `/rules`
 - `/chat_id`
 - `/sendnow <rule_name>`

@@ -1,9 +1,15 @@
 ﻿from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import random
+import re
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -27,8 +33,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 REGISTERED_CHATS_FILE = Path(__file__).with_name("registered_chats.json")
+REGISTERED_CHATS_LOCK = asyncio.Lock()
 VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 RULES_BY_NAME = {rule.name: rule for rule in NOTIFICATION_RULES}
+CAT_OF_THE_DAY_RULE_NAME = "cat_of_the_day"
+CAT_SEARCH_QUERY = "funny cat mem"
+CAT_NOMINEES = ("@vi_vi_es", "@LidiyaBabyak")
+FALLBACK_CAT_IMAGE_URLS = (
+    "https://loremflickr.com/900/900/funny,cat,meme",
+    "https://loremflickr.com/900/900/cat,meme",
+)
+HTTP_TIMEOUT_SECONDS = 20
+REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
+    )
+}
 
 
 def _read_registered_chats() -> set[int]:
@@ -59,6 +80,44 @@ def _write_registered_chats(chat_ids: set[int]) -> None:
     REGISTERED_CHATS_FILE.write_text(json.dumps(ordered, indent=2), encoding="utf-8")
 
 
+async def _get_registered_chats() -> set[int]:
+    async with REGISTERED_CHATS_LOCK:
+        return _read_registered_chats()
+
+
+async def _register_chat(chat_id: int) -> tuple[bool, int]:
+    async with REGISTERED_CHATS_LOCK:
+        chat_ids = _read_registered_chats()
+        if chat_id in chat_ids:
+            return False, len(chat_ids)
+
+        chat_ids.add(chat_id)
+        _write_registered_chats(chat_ids)
+        return True, len(chat_ids)
+
+
+async def _unregister_chat(chat_id: int) -> tuple[bool, int]:
+    async with REGISTERED_CHATS_LOCK:
+        chat_ids = _read_registered_chats()
+        if chat_id not in chat_ids:
+            return False, len(chat_ids)
+
+        chat_ids.remove(chat_id)
+        _write_registered_chats(chat_ids)
+        return True, len(chat_ids)
+
+
+async def _remove_stale_chats(stale_chat_ids: set[int]) -> None:
+    if not stale_chat_ids:
+        return
+
+    async with REGISTERED_CHATS_LOCK:
+        chat_ids = _read_registered_chats()
+        updated = chat_ids - stale_chat_ids
+        if updated != chat_ids:
+            _write_registered_chats(updated)
+
+
 def _format_rule(rule: NotificationRule) -> str:
     mentions = " ".join(rule.mentions) if rule.mentions else "(no mentions)"
     days = ",".join(rule.days)
@@ -71,6 +130,95 @@ def _format_notification_text(rule: NotificationRule) -> str:
     if mentions:
         return f"{mentions}\n{rule.message}"
     return rule.message
+
+
+def _build_cat_of_the_day_text() -> str:
+    nominee = random.choice(CAT_NOMINEES)
+    return f"Today's cat of the day is {nominee}. Which cat are you today?"
+
+
+def _fetch_duckduckgo_vqd(search_query: str) -> str:
+    query = urlencode({"q": search_query, "iax": "images", "ia": "images"})
+    request = Request(f"https://duckduckgo.com/?{query}", headers=REQUEST_HEADERS)
+    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        html = response.read().decode("utf-8", errors="replace")
+
+    match = re.search(r"vqd=['\"]([^'\"]+)['\"]", html)
+    if not match:
+        raise RuntimeError("Cannot extract DuckDuckGo search token (vqd).")
+    return match.group(1)
+
+
+def _fetch_cat_image_urls(search_query: str) -> list[str]:
+    vqd = _fetch_duckduckgo_vqd(search_query)
+    query = urlencode(
+        {
+            "l": "us-en",
+            "o": "json",
+            "q": search_query,
+            "vqd": vqd,
+            "f": ",,,",
+            "p": "1",
+        }
+    )
+    headers = {
+        **REQUEST_HEADERS,
+        "Accept": "application/json,text/javascript,*/*;q=0.01",
+        "Referer": "https://duckduckgo.com/",
+    }
+    request = Request(f"https://duckduckgo.com/i.js?{query}", headers=headers)
+    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+
+    results = payload.get("results", [])
+    image_urls: list[str] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        image_url = result.get("image")
+        if isinstance(image_url, str) and image_url.startswith(("http://", "https://")):
+            image_urls.append(image_url)
+    return image_urls
+
+
+def _choose_cat_image_url() -> str:
+    fallback_url = random.choice(FALLBACK_CAT_IMAGE_URLS)
+    try:
+        image_urls = _fetch_cat_image_urls(CAT_SEARCH_QUERY)
+    except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "Cannot fetch image search results for '%s' (%s). Falling back to random query-based URL.",
+            CAT_SEARCH_QUERY,
+            exc,
+        )
+        return fallback_url
+
+    if not image_urls:
+        logger.warning(
+            "No image URLs found for query '%s'. Falling back to random query-based URL.",
+            CAT_SEARCH_QUERY,
+        )
+        return fallback_url
+    return random.choice(image_urls)
+
+
+async def _send_rule_to_chat(application: Application, chat_id: int, rule: NotificationRule) -> None:
+    if rule.name != CAT_OF_THE_DAY_RULE_NAME:
+        await application.bot.send_message(
+            chat_id=chat_id,
+            text=_format_notification_text(rule),
+        )
+        return
+
+    await application.bot.send_message(chat_id=chat_id, text=_build_cat_of_the_day_text())
+    image_url = _choose_cat_image_url()
+    try:
+        await application.bot.send_photo(chat_id=chat_id, photo=image_url)
+    except TelegramError:
+        logger.exception(
+            "Cannot send cat image to chat %s. Sending URL as plain text fallback.", chat_id
+        )
+        await application.bot.send_message(chat_id=chat_id, text=image_url)
 
 
 def _parse_clock(clock: str) -> tuple[int, int]:
@@ -107,17 +255,16 @@ def _validate_rule(rule: NotificationRule) -> None:
 
 
 async def _send_rule_to_chats(application: Application, rule: NotificationRule) -> None:
-    chat_ids = _read_registered_chats()
+    chat_ids = await _get_registered_chats()
     if not chat_ids:
         logger.info("No chats registered. Skipping rule %s", rule.name)
         return
 
-    text = _format_notification_text(rule)
     stale_chat_ids: set[int] = set()
 
     for chat_id in chat_ids:
         try:
-            await application.bot.send_message(chat_id=chat_id, text=text)
+            await _send_rule_to_chat(application=application, chat_id=chat_id, rule=rule)
             logger.info("Sent rule '%s' to chat %s", rule.name, chat_id)
         except Forbidden:
             logger.warning("Bot was removed from chat %s. Removing registration.", chat_id)
@@ -126,7 +273,10 @@ async def _send_rule_to_chats(application: Application, rule: NotificationRule) 
             logger.exception("Telegram API error when sending rule %s to chat %s", rule.name, chat_id)
 
     if stale_chat_ids:
-        _write_registered_chats(chat_ids - stale_chat_ids)
+        try:
+            await _remove_stale_chats(stale_chat_ids)
+        except OSError:
+            logger.exception("Cannot update registered chats after stale removals: %s", stale_chat_ids)
 
 
 def _schedule_rules(application: Application, scheduler: AsyncIOScheduler) -> None:
@@ -163,6 +313,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Commands:\n"
         "/enable_notifications - enable notifications in this chat\n"
         "/disable_notifications - disable notifications in this chat\n"
+        "/notifications_status - check if this chat is registered\n"
         "/rules - show active rules from code\n"
         "/chat_id - show this chat id\n"
         "/sendnow <rule_name> - send one rule right now to this chat"
@@ -177,15 +328,21 @@ async def enable_notifications_command(
         return
 
     chat_id = update.effective_chat.id
-    chat_ids = _read_registered_chats()
-    if chat_id in chat_ids:
-        await update.effective_message.reply_text("Notifications are already enabled in this chat.")
+    try:
+        added, total = await _register_chat(chat_id)
+    except OSError:
+        logger.exception("Cannot save notifications enable for chat %s", chat_id)
+        await update.effective_message.reply_text("Cannot save chat registration right now. Please try again.")
         return
 
-    chat_ids.add(chat_id)
-    _write_registered_chats(chat_ids)
+    if not added:
+        await update.effective_message.reply_text(
+            f"Notifications are already enabled in this chat.\nChat ID: {chat_id}\nRegistered chats: {total}"
+        )
+        return
+
     await update.effective_message.reply_text(
-        "Notifications are enabled for this chat. Use /rules to see the schedule."
+        f"Notifications are enabled for this chat.\nChat ID: {chat_id}\nRegistered chats: {total}"
     )
 
 
@@ -196,14 +353,24 @@ async def disable_notifications_command(
         return
 
     chat_id = update.effective_chat.id
-    chat_ids = _read_registered_chats()
-    if chat_id not in chat_ids:
-        await update.effective_message.reply_text("Notifications are not enabled in this chat.")
+    try:
+        removed, total = await _unregister_chat(chat_id)
+    except OSError:
+        logger.exception("Cannot save notifications disable for chat %s", chat_id)
+        await update.effective_message.reply_text(
+            "Cannot update chat registration right now. Please try again."
+        )
         return
 
-    chat_ids.remove(chat_id)
-    _write_registered_chats(chat_ids)
-    await update.effective_message.reply_text("Notifications are disabled in this chat.")
+    if not removed:
+        await update.effective_message.reply_text(
+            f"Notifications are not enabled in this chat.\nChat ID: {chat_id}\nRegistered chats: {total}"
+        )
+        return
+
+    await update.effective_message.reply_text(
+        f"Notifications are disabled in this chat.\nChat ID: {chat_id}\nRegistered chats: {total}"
+    )
 
 
 async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -219,6 +386,20 @@ async def chat_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not update.effective_message or not update.effective_chat:
         return
     await update.effective_message.reply_text(f"Chat ID: {update.effective_chat.id}")
+
+
+async def notifications_status_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if not update.effective_message or not update.effective_chat:
+        return
+
+    chat_id = update.effective_chat.id
+    chat_ids = await _get_registered_chats()
+    status = "enabled" if chat_id in chat_ids else "disabled"
+    await update.effective_message.reply_text(
+        f"Chat ID: {chat_id}\nNotifications: {status}\nRegistered chats: {len(chat_ids)}"
+    )
 
 
 async def sendnow_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -239,9 +420,10 @@ async def sendnow_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     try:
-        await context.bot.send_message(
+        await _send_rule_to_chat(
+            application=context.application,
             chat_id=update.effective_chat.id,
-            text=_format_notification_text(rule),
+            rule=rule,
         )
     except TelegramError:
         logger.exception("Failed manual send for rule %s", rule.name)
@@ -287,6 +469,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("enable_notifications", enable_notifications_command))
     application.add_handler(CommandHandler("disable_notifications", disable_notifications_command))
+    application.add_handler(CommandHandler("notifications_status", notifications_status_command))
     application.add_handler(CommandHandler("rules", rules_command))
     application.add_handler(CommandHandler("chat_id", chat_id_command))
     application.add_handler(CommandHandler("sendnow", sendnow_command))
@@ -296,5 +479,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

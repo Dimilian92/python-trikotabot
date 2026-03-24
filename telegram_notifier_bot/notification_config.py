@@ -6,6 +6,7 @@ from dataclasses import dataclass
 BOT_TIMEZONE = "Europe/Berlin"
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri")
+ALL_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,5 +68,11 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
         days=WEEKDAYS,
         times=("18:00",),
     ),
-   
+    NotificationRule(
+        name="cat_of_the_day",
+        mentions=(),
+        message="🐱 Cat of the day nomination",
+        days=ALL_DAYS,
+        times=("10:00",),
+    ),
 )
