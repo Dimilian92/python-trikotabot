@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
@@ -37,11 +37,27 @@ REGISTERED_CHATS_LOCK = asyncio.Lock()
 VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 RULES_BY_NAME = {rule.name: rule for rule in NOTIFICATION_RULES}
 CAT_OF_THE_DAY_RULE_NAME = "cat_of_the_day"
-CAT_SEARCH_QUERY = "funny cat mem"
+CAT_SEARCH_QUERY = "funny cat meme"
 CAT_NOMINEES = ("@vi_vi_es", "@LidiyaBabyak")
 FALLBACK_CAT_IMAGE_URLS = (
-    "https://loremflickr.com/900/900/funny,cat,meme",
-    "https://loremflickr.com/900/900/cat,meme",
+    "https://cataas.com/cat/says/Cat%20Meme%20of%20the%20Day?fontSize=38&fontColor=white",
+    "https://cataas.com/cat/says/Live%20Laugh%20Meow?fontSize=42&fontColor=white",
+    "https://cataas.com/cat/says/Meme%20Cat%20Energy?fontSize=42&fontColor=white",
+)
+CAT_KEYWORDS = ("cat", "kitty", "kitten", "feline", "meow")
+MEME_KEYWORDS = ("meme", "funny", "lol", "reaction", "template")
+NON_CAT_KEYWORDS = (
+    "zebra",
+    "horse",
+    "dog",
+    "puppy",
+    "lion",
+    "tiger",
+    "cheetah",
+    "leopard",
+    "panther",
+    "wolf",
+    "fox",
 )
 HTTP_TIMEOUT_SECONDS = 20
 REQUEST_HEADERS = {
@@ -137,6 +153,26 @@ def _build_cat_of_the_day_text() -> str:
     return f"Today's cat of the day is {nominee}. Which cat are you today?"
 
 
+def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
+    return any(keyword in text for keyword in keywords)
+
+
+def _is_cat_meme_result(result: dict[str, object]) -> bool:
+    searchable_text = " ".join(
+        value.lower()
+        for key in ("title", "url", "image", "source")
+        for value in (result.get(key),)
+        if isinstance(value, str)
+    )
+    if not searchable_text:
+        return False
+    if _contains_any_keyword(searchable_text, NON_CAT_KEYWORDS):
+        return False
+    if not _contains_any_keyword(searchable_text, CAT_KEYWORDS):
+        return False
+    return _contains_any_keyword(searchable_text, MEME_KEYWORDS)
+
+
 def _fetch_duckduckgo_vqd(search_query: str) -> str:
     query = urlencode({"q": search_query, "iax": "images", "ia": "images"})
     request = Request(f"https://duckduckgo.com/?{query}", headers=REQUEST_HEADERS)
@@ -175,10 +211,12 @@ def _fetch_cat_image_urls(search_query: str) -> list[str]:
     for result in results:
         if not isinstance(result, dict):
             continue
+        if not _is_cat_meme_result(result):
+            continue
         image_url = result.get("image")
         if isinstance(image_url, str) and image_url.startswith(("http://", "https://")):
             image_urls.append(image_url)
-    return image_urls
+    return list(dict.fromkeys(image_urls))
 
 
 def _choose_cat_image_url() -> str:
