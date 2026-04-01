@@ -5,11 +5,7 @@ import json
 import logging
 import os
 import random
-import re
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -36,36 +32,6 @@ REGISTERED_CHATS_FILE = Path(__file__).with_name("registered_chats.json")
 REGISTERED_CHATS_LOCK = asyncio.Lock()
 VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 RULES_BY_NAME = {rule.name: rule for rule in NOTIFICATION_RULES}
-CAT_OF_THE_DAY_RULE_NAME = "cat_of_the_day"
-CAT_SEARCH_QUERY = "funny cat meme"
-CAT_NOMINEES = ("@vi_vi_es", "@LidiyaBabyak")
-FALLBACK_CAT_IMAGE_URLS = (
-    "https://cataas.com/cat/says/Cat%20Meme%20of%20the%20Day?fontSize=38&fontColor=white",
-    "https://cataas.com/cat/says/Live%20Laugh%20Meow?fontSize=42&fontColor=white",
-    "https://cataas.com/cat/says/Meme%20Cat%20Energy?fontSize=42&fontColor=white",
-)
-CAT_KEYWORDS = ("cat", "kitty", "kitten", "feline", "meow")
-MEME_KEYWORDS = ("meme", "funny", "lol", "reaction", "template")
-NON_CAT_KEYWORDS = (
-    "zebra",
-    "horse",
-    "dog",
-    "puppy",
-    "lion",
-    "tiger",
-    "cheetah",
-    "leopard",
-    "panther",
-    "wolf",
-    "fox",
-)
-HTTP_TIMEOUT_SECONDS = 20
-REQUEST_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"
-    )
-}
 
 
 def _read_registered_chats() -> set[int]:
@@ -138,125 +104,24 @@ def _format_rule(rule: NotificationRule) -> str:
     mentions = " ".join(rule.mentions) if rule.mentions else "(no mentions)"
     days = ",".join(rule.days)
     times = ",".join(rule.times)
-    return f"{rule.name}: {mentions} | {days} | {times} | {rule.message}"
+    variants = len(rule.messages)
+    preview = rule.messages[0]
+    return f"{rule.name}: {mentions} | {days} | {times} | {variants} variants | e.g. {preview}"
 
 
 def _format_notification_text(rule: NotificationRule) -> str:
     mentions = " ".join(rule.mentions).strip()
+    message = random.choice(rule.messages)
     if mentions:
-        return f"{mentions}\n{rule.message}"
-    return rule.message
-
-
-def _build_cat_of_the_day_text() -> str:
-    nominee = random.choice(CAT_NOMINEES)
-    return f"Today's cat of the day is {nominee}. Which cat are you today?"
-
-
-def _contains_any_keyword(text: str, keywords: tuple[str, ...]) -> bool:
-    return any(keyword in text for keyword in keywords)
-
-
-def _is_cat_meme_result(result: dict[str, object]) -> bool:
-    searchable_text = " ".join(
-        value.lower()
-        for key in ("title", "url", "image", "source")
-        for value in (result.get(key),)
-        if isinstance(value, str)
-    )
-    if not searchable_text:
-        return False
-    if _contains_any_keyword(searchable_text, NON_CAT_KEYWORDS):
-        return False
-    if not _contains_any_keyword(searchable_text, CAT_KEYWORDS):
-        return False
-    return _contains_any_keyword(searchable_text, MEME_KEYWORDS)
-
-
-def _fetch_duckduckgo_vqd(search_query: str) -> str:
-    query = urlencode({"q": search_query, "iax": "images", "ia": "images"})
-    request = Request(f"https://duckduckgo.com/?{query}", headers=REQUEST_HEADERS)
-    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-        html = response.read().decode("utf-8", errors="replace")
-
-    match = re.search(r"vqd=['\"]([^'\"]+)['\"]", html)
-    if not match:
-        raise RuntimeError("Cannot extract DuckDuckGo search token (vqd).")
-    return match.group(1)
-
-
-def _fetch_cat_image_urls(search_query: str) -> list[str]:
-    vqd = _fetch_duckduckgo_vqd(search_query)
-    query = urlencode(
-        {
-            "l": "us-en",
-            "o": "json",
-            "q": search_query,
-            "vqd": vqd,
-            "f": ",,,",
-            "p": "1",
-        }
-    )
-    headers = {
-        **REQUEST_HEADERS,
-        "Accept": "application/json,text/javascript,*/*;q=0.01",
-        "Referer": "https://duckduckgo.com/",
-    }
-    request = Request(f"https://duckduckgo.com/i.js?{query}", headers=headers)
-    with urlopen(request, timeout=HTTP_TIMEOUT_SECONDS) as response:
-        payload = json.loads(response.read().decode("utf-8", errors="replace"))
-
-    results = payload.get("results", [])
-    image_urls: list[str] = []
-    for result in results:
-        if not isinstance(result, dict):
-            continue
-        if not _is_cat_meme_result(result):
-            continue
-        image_url = result.get("image")
-        if isinstance(image_url, str) and image_url.startswith(("http://", "https://")):
-            image_urls.append(image_url)
-    return list(dict.fromkeys(image_urls))
-
-
-def _choose_cat_image_url() -> str:
-    fallback_url = random.choice(FALLBACK_CAT_IMAGE_URLS)
-    try:
-        image_urls = _fetch_cat_image_urls(CAT_SEARCH_QUERY)
-    except (HTTPError, URLError, TimeoutError, OSError, RuntimeError, json.JSONDecodeError) as exc:
-        logger.warning(
-            "Cannot fetch image search results for '%s' (%s). Falling back to random query-based URL.",
-            CAT_SEARCH_QUERY,
-            exc,
-        )
-        return fallback_url
-
-    if not image_urls:
-        logger.warning(
-            "No image URLs found for query '%s'. Falling back to random query-based URL.",
-            CAT_SEARCH_QUERY,
-        )
-        return fallback_url
-    return random.choice(image_urls)
+        return f"{mentions}\n{message}"
+    return message
 
 
 async def _send_rule_to_chat(application: Application, chat_id: int, rule: NotificationRule) -> None:
-    if rule.name != CAT_OF_THE_DAY_RULE_NAME:
-        await application.bot.send_message(
-            chat_id=chat_id,
-            text=_format_notification_text(rule),
-        )
-        return
-
-    await application.bot.send_message(chat_id=chat_id, text=_build_cat_of_the_day_text())
-    image_url = _choose_cat_image_url()
-    try:
-        await application.bot.send_photo(chat_id=chat_id, photo=image_url)
-    except TelegramError:
-        logger.exception(
-            "Cannot send cat image to chat %s. Sending URL as plain text fallback.", chat_id
-        )
-        await application.bot.send_message(chat_id=chat_id, text=image_url)
+    await application.bot.send_message(
+        chat_id=chat_id,
+        text=_format_notification_text(rule),
+    )
 
 
 def _parse_clock(clock: str) -> tuple[int, int]:
@@ -275,13 +140,18 @@ def _parse_clock(clock: str) -> tuple[int, int]:
 def _validate_rule(rule: NotificationRule) -> None:
     if not rule.name:
         raise ValueError("Every rule must have a name.")
-    if not rule.message:
-        raise ValueError(f"Rule {rule.name} has an empty message.")
+    if not rule.messages:
+        raise ValueError(f"Rule {rule.name} has no messages.")
+    if len(rule.messages) < 7:
+        raise ValueError(f"Rule {rule.name} must define at least 7 message variants.")
     if not rule.days:
         raise ValueError(f"Rule {rule.name} has no days.")
     if not rule.times:
         raise ValueError(f"Rule {rule.name} has no times.")
 
+    for message in rule.messages:
+        if not message.strip():
+            raise ValueError(f"Rule {rule.name} includes an empty message variant.")
     for day in rule.days:
         if day not in VALID_DAYS:
             raise ValueError(
