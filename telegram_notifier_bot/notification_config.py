@@ -6,14 +6,13 @@ from dataclasses import dataclass
 BOT_TIMEZONE = "Europe/Berlin"
 
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri")
-ALL_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 @dataclass(frozen=True, slots=True)
 class NotificationRule:
     name: str
     mentions: tuple[str, ...]
-    message: str
+    messages: tuple[str, ...]
     days: tuple[str, ...]
     times: tuple[str, ...]
 
@@ -22,57 +21,91 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
     NotificationRule(
         name="lyda_check_in",
         mentions=("@LidiyaBabyak",),
-        message="🕘 Check-in time, my love! Clock in before the coffee gets lonely ☕",
+        messages=(
+            "Check-in reminder: time to clock in and start strong.",
+            "Good morning, check-in time.",
+            "Please clock in now before diving into tasks.",
+            "Quick reminder: check in for work.",
+            "New day, fresh start, please check in.",
+            "Check-in time. Let us get the day moving.",
+            "Friendly nudge: clock in now.",
+        ),
         days=WEEKDAYS,
         times=("09:10",),
     ),
     NotificationRule(
         name="lyda_lunch_in",
         mentions=("@LidiyaBabyak",),
-        message="🍽️ Lunch o'clock! Time to check out and feed the legend inside you 😄",
+        messages=(
+            "Lunch time. Please check out for your break.",
+            "Lunch reminder: clock out now and enjoy your meal.",
+            "Time for lunch. Please check out.",
+            "Break time is here. Check out and recharge.",
+            "Midday reminder: check out for lunch.",
+            "Please clock out now for lunch.",
+            "Lunch starts now. Quick check-out reminder.",
+        ),
         days=WEEKDAYS,
         times=("12:00",),
     ),
     NotificationRule(
         name="lyda_lunch_out",
         mentions=("@LidiyaBabyak",),
-        message="⏰ Break over, superstar! Time to check in and pretend we missed work 😅",
+        messages=(
+            "Lunch break is over. Please check back in.",
+            "Welcome back. Time to clock in after lunch.",
+            "Break complete. Please check in now.",
+            "Post-lunch reminder: check in and continue.",
+            "Time to return from lunch and clock in.",
+            "Friendly reminder: check in after your break.",
+            "Lunch is done. Please check in now.",
+        ),
         days=WEEKDAYS,
-        times=("13:10",),
+        times=("13:00",),
     ),
     NotificationRule(
         name="lyda_check_out",
         mentions=("@LidiyaBabyak",),
-        message="🌇 Check-out time! Great job today, now enjoy your evening like a champion ✨",
+        messages=(
+            "Check-out reminder: great work today, please clock out.",
+            "End of day reminder: check out and relax.",
+            "Time to wrap up. Please clock out now.",
+            "Workday complete. Quick check-out reminder.",
+            "Please check out and enjoy your evening.",
+            "Evening reminder: clock out for today.",
+            "Nice job today. Time to check out.",
+        ),
         days=WEEKDAYS,
         times=("18:00",),
     ),
     NotificationRule(
-        name="vio_collagen",
-        mentions=("@vi_vi_es",),
-        message="🥤 Collagen o'clock! Sip it now for future-you's glow-up 😎",
+        name="lyda_collagen",
+        mentions=("@LidiyaBabyak", "@vi_vi_es"),
+        messages=(
+            "Collagen reminder: quick sip time.",
+            "Time for collagen. One sip now.",
+            "Hydration and collagen break right now.",
+            "Friendly collagen ping: take it now.",
+            "Daily collagen check: please sip now.",
+            "Collagen moment: quick and easy.",
+            "Do not forget collagen. Sip now.",
+        ),
         days=WEEKDAYS,
         times=("11:00",),
     ),
     NotificationRule(
-        name="lyda_collagen",
-        mentions=("@LidiyaBabyak",),
-        message="🥤 Collagen reminder: one quick sip now, one happy future selfie later 📸",
-        days=WEEKDAYS,
-        times=("11:01",),
-    ),
-    NotificationRule(
         name="vio_walk",
         mentions=("@vi_vi_es",),
-        message="🚶 Walk break alert! Drop everything (except your phone), stretch those legs, and claim your me-time 💪",
+        messages=(
+            "Walk break reminder: time to move.",
+            "Quick walk time. Stretch your legs.",
+            "Please take a short walk now.",
+            "Movement break: go for a walk.",
+            "Walk reminder: stand up and step out.",
+            "A short walk now will help reset focus.",
+            "Friendly nudge: take your walk break.",
+        ),
         days=WEEKDAYS,
-        times=("18:00",),
-    ),
-    NotificationRule(
-        name="cat_of_the_day",
-        mentions=(),
-        message="🐱 Cat of the day nomination",
-        days=ALL_DAYS,
-        times=("10:00",),
+        times=("18:30",),
     ),
 )
