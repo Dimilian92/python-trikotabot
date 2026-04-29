@@ -93,19 +93,4 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
         days=WEEKDAYS,
         times=("11:00",),
     ),
-    NotificationRule(
-        name="vio_walk",
-        mentions=("@vi_vi_es",),
-        messages=(
-            "Walk break reminder: time to move.",
-            "Quick walk time. Stretch your legs.",
-            "Please take a short walk now.",
-            "Movement break: go for a walk.",
-            "Walk reminder: stand up and step out.",
-            "A short walk now will help reset focus.",
-            "Friendly nudge: take your walk break.",
-        ),
-        days=WEEKDAYS,
-        times=("18:30",),
-    ),
 )
