@@ -31,7 +31,7 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
             "Coffee? Maybe. Check-in? Definitely ☕✨",
         ),
         days=WEEKDAYS,
-        times=("09:10",),
+        times=("09:00",),
     ),
     NotificationRule(
         name="lyda_lunch_in",
