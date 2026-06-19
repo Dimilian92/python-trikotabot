@@ -15,6 +15,7 @@ class NotificationRule:
     messages: tuple[str, ...]
     days: tuple[str, ...]
     times: tuple[str, ...]
+    horoscope_sign: str | None = None
 
 
 NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
@@ -92,5 +93,21 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
         ),
         days=WEEKDAYS,
         times=("11:00",),
+    ),
+    NotificationRule(
+        name="sagittarius_horoscope",
+        mentions=("@LidiyaBabyak",),
+        messages=("placeholder",),
+        days=WEEKDAYS,
+        times=("09:00",),
+        horoscope_sign="sagittarius",
+    ),
+    NotificationRule(
+        name="taurus_horoscope",
+        mentions=("@vi_vi_es",),
+        messages=("placeholder",),
+        days=WEEKDAYS,
+        times=("09:00",),
+        horoscope_sign="taurus",
     ),
 )
