@@ -7,6 +7,7 @@ import os
 import random
 from pathlib import Path
 
+import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Update
@@ -32,6 +33,33 @@ REGISTERED_CHATS_FILE = Path(__file__).with_name("registered_chats.json")
 REGISTERED_CHATS_LOCK = asyncio.Lock()
 VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 RULES_BY_NAME = {rule.name: rule for rule in NOTIFICATION_RULES}
+
+AZTRO_API_URL = "https://aztro.sameerkumar.website/"
+
+
+def _fetch_horoscope(sign: str) -> str:
+    """Fetch horoscope from aztro API for the given zodiac sign."""
+    try:
+        params = (
+            ("sign", sign.lower()),
+            ("day", "today"),
+        )
+        response = requests.post(AZTRO_API_URL, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        horoscope = data.get("description", "")
+        if horoscope:
+            return f"🔮 {sign.capitalize()} Daily Horoscope 🔮\n{horoscope}"
+        else:
+            logger.warning("Empty horoscope description for %s", sign)
+    except requests.Timeout:
+        logger.warning("Timeout fetching horoscope for sign %s", sign)
+    except requests.RequestException as e:
+        logger.warning("Error fetching horoscope for sign %s: %s", sign, e)
+    except Exception as e:
+        logger.exception("Unexpected error fetching horoscope for sign %s: %s", sign, e)
+
+    return f"🔮 {sign.capitalize()} Daily Horoscope 🔮\nThe stars are aligned in your favor today!"
 
 
 def _read_registered_chats() -> set[int]:
@@ -104,9 +132,14 @@ def _format_rule(rule: NotificationRule) -> str:
     mentions = " ".join(rule.mentions) if rule.mentions else "(no mentions)"
     days = ",".join(rule.days)
     times = ",".join(rule.times)
-    variants = len(rule.messages)
-    preview = rule.messages[0]
-    return f"{rule.name}: {mentions} | {days} | {times} | {variants} variants | e.g. {preview}"
+    
+    if rule.horoscope_sign:
+        source = f"API horoscope ({rule.horoscope_sign.capitalize()})"
+    else:
+        variants = len(rule.messages)
+        source = f"{variants} variants | e.g. {rule.messages[0]}"
+    
+    return f"{rule.name}: {mentions} | {days} | {times} | {source}"
 
 
 def _format_notification_text(rule: NotificationRule) -> str:
@@ -117,10 +150,25 @@ def _format_notification_text(rule: NotificationRule) -> str:
     return message
 
 
+def _format_notification_text_async(rule: NotificationRule) -> str:
+    """Format notification text, fetching from API if needed for horoscope rules."""
+    mentions = " ".join(rule.mentions).strip()
+    
+    if rule.horoscope_sign:
+        message = _fetch_horoscope(rule.horoscope_sign)
+    else:
+        message = random.choice(rule.messages)
+    
+    if mentions:
+        return f"{mentions}\n{message}"
+    return message
+
+
 async def _send_rule_to_chat(application: Application, chat_id: int, rule: NotificationRule) -> None:
+    text = _format_notification_text_async(rule)
     await application.bot.send_message(
         chat_id=chat_id,
-        text=_format_notification_text(rule),
+        text=text,
     )
 
 
@@ -142,7 +190,8 @@ def _validate_rule(rule: NotificationRule) -> None:
         raise ValueError("Every rule must have a name.")
     if not rule.messages:
         raise ValueError(f"Rule {rule.name} has no messages.")
-    if len(rule.messages) < 7:
+    # Skip message variant check for API-based horoscope rules
+    if not rule.horoscope_sign and len(rule.messages) < 7:
         raise ValueError(f"Rule {rule.name} must define at least 7 message variants.")
     if not rule.days:
         raise ValueError(f"Rule {rule.name} has no days.")
