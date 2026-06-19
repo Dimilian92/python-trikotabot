@@ -34,31 +34,61 @@ REGISTERED_CHATS_LOCK = asyncio.Lock()
 VALID_DAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
 RULES_BY_NAME = {rule.name: rule for rule in NOTIFICATION_RULES}
 
-AZTRO_API_URL = "https://aztro.sameerkumar.website/"
+AZTRO_API_URL = "https://api.api-ninjas.com/v1/horoscope"
+
+# Horoscope responses for each sign as fallback (varied by day)
+HOROSCOPES = {
+    "sagittarius": [
+        "Adventure calls! Whether it's exploring something new or taking a risk, the universe supports your bravery. Don't play it safe today. Be the hero of your story! 🚀",
+        "Today brings exciting opportunities! Your adventurous spirit is activated. Trust your instincts and don't hesitate to take that leap of faith. Fortune favors the bold!",
+        "The stars align in your favor today! Creative energy flows through you. Perfect time to share your ideas and expand your horizons. Be bold, be brilliant! 🎯",
+        "Your optimism is contagious today! People are drawn to your energy and enthusiasm. This is your moment to inspire and lead. Seize the day! 🌟",
+        "Today's energy encourages growth and expansion. New connections and collaborations are highly favored. Say yes to invitations and new experiences. Great things await! 💫",
+        "Your intuition is super sharp today! Trust those gut feelings and follow your instincts. The universe is guiding you toward success. Stay open and receptive! 🎪",
+        "Positive vibes surround you! Your natural charisma is amplified. This is the perfect day to pursue your goals and connect with others. You've got this, archer! 🏹✨",
+    ],
+    "taurus": [
+        "Stability and abundance are highlighted today! Your grounded energy attracts good fortune. Focus on what truly matters and trust in your steady progress. Well-deserved success is coming! 💚",
+        "Today brings comfort and security. Your practical approach pays off beautifully. Take time to appreciate the good things around you. Gratitude multiplies blessings! 🌾",
+        "Your strength and determination shine today! Goals that seemed distant are now within reach. Stay focused and persistent. Your efforts will be rewarded! 💪✨",
+        "Financial and personal growth are favored today. Your solid foundation supports new opportunities. Don't be afraid to invest in yourself. The returns will be worth it! 💎",
+        "Beauty and harmony surround you today! Your calm, nurturing energy creates positive space around you. Embrace self-care and enjoy life's simple pleasures. You deserve it! 🌸",
+        "Your reliability makes you shine today! People trust and depend on you for good reason. This is your time to lead with confidence and integrity. You're a natural! 👑",
+        "Blessings flow your way! Your patient, steadfast nature attracts positive energy. Keep moving forward with purpose. Success follows those who stay true to their path! 🌟💚",
+    ],
+}
 
 
 def _fetch_horoscope(sign: str) -> str:
-    """Fetch horoscope from aztro API for the given zodiac sign."""
+    """Fetch horoscope from API Ninjas for the given zodiac sign."""
     try:
-        params = (
-            ("sign", sign.lower()),
-            ("day", "today"),
+        sign_lower = sign.lower()
+        response = requests.get(
+            AZTRO_API_URL,
+            params={"zodiac": sign_lower},
+            timeout=10
         )
-        response = requests.post(AZTRO_API_URL, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
-        horoscope = data.get("description", "")
+        horoscope = data.get("horoscope", "")
         if horoscope:
+            logger.info("Successfully fetched horoscope for %s", sign)
             return f"🔮 {sign.capitalize()} Daily Horoscope 🔮\n{horoscope}"
         else:
-            logger.warning("Empty horoscope description for %s", sign)
+            logger.warning("Empty horoscope text for %s. Response: %s", sign, data)
     except requests.Timeout:
         logger.warning("Timeout fetching horoscope for sign %s", sign)
     except requests.RequestException as e:
-        logger.warning("Error fetching horoscope for sign %s: %s", sign, e)
+        logger.warning("RequestException fetching horoscope for sign %s: %s", sign, e)
     except Exception as e:
         logger.exception("Unexpected error fetching horoscope for sign %s: %s", sign, e)
 
+    # Fallback to random horoscope from curated list
+    logger.info("Using fallback horoscope for %s", sign)
+    if sign_lower in HOROSCOPES:
+        horoscope = random.choice(HOROSCOPES[sign_lower])
+        return f"🔮 {sign.capitalize()} Daily Horoscope 🔮\n{horoscope}"
+    
     return f"🔮 {sign.capitalize()} Daily Horoscope 🔮\nThe stars are aligned in your favor today!"
 
 
