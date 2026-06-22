@@ -13,8 +13,8 @@ class NotificationRule:
     name: str
     mentions: tuple[str, ...]
     messages: tuple[str, ...]
-    days: tuple[str, ...]
-    times: tuple[str, ...]
+    days: tuple[str, ...] | None
+    times: tuple[str, ...] | None
     horoscope_sign: str | None = None
 
 
@@ -46,8 +46,8 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
             "Lunch break unlocked 🍱 Check out and enjoy.",
             "A gentle reminder from your tiny bot bestie: lunch time, check out 🌸",
         ),
-        days=WEEKDAYS,
-        times=("12:00",),
+        days=None,
+        times=None,
     ),
     NotificationRule(
         name="lyda_lunch_out",
@@ -61,8 +61,8 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
             "Recharge complete 🔋 Please check back in.",
             "Tiny nudge: lunch is over, queen. Time to check in 💖",
         ),
-        days=WEEKDAYS,
-        times=("13:00",),
+        days=None,
+        times=None,
     ),
     NotificationRule(
         name="lyda_check_out",
@@ -91,23 +91,23 @@ NOTIFICATION_RULES: tuple[NotificationRule, ...] = (
             "Tiny reminder for future radiance ✨ Take your collagen now.",
             "Girls, it’s glow-up maintenance time 💅 Collagen sip, please.",
         ),
-        days=WEEKDAYS,
-        times=("11:00",),
+        days=None,
+        times=None,
     ),
     NotificationRule(
         name="sagittarius_horoscope",
         mentions=("@LidiyaBabyak",),
         messages=("placeholder",),
-        days=WEEKDAYS,
-        times=("09:00",),
+        days=None,
+        times=None,
         horoscope_sign="sagittarius",
     ),
     NotificationRule(
         name="taurus_horoscope",
         mentions=("@vi_vi_es",),
         messages=("placeholder",),
-        days=WEEKDAYS,
-        times=("09:00",),
+        days=None,
+        times=None,
         horoscope_sign="taurus",
     ),
 )
