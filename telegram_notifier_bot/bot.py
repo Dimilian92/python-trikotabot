@@ -160,15 +160,16 @@ async def _remove_stale_chats(stale_chat_ids: set[int]) -> None:
 
 def _format_rule(rule: NotificationRule) -> str:
     mentions = " ".join(rule.mentions) if rule.mentions else "(no mentions)"
-    days = ",".join(rule.days)
-    times = ",".join(rule.times)
-    
+
+    days = "disabled" if rule.days is None else ",".join(rule.days)
+    times = "disabled" if rule.times is None else ",".join(rule.times)
+
     if rule.horoscope_sign:
         source = f"API horoscope ({rule.horoscope_sign.capitalize()})"
     else:
         variants = len(rule.messages)
         source = f"{variants} variants | e.g. {rule.messages[0]}"
-    
+
     return f"{rule.name}: {mentions} | {days} | {times} | {source}"
 
 
@@ -218,25 +219,34 @@ def _parse_clock(clock: str) -> tuple[int, int]:
 def _validate_rule(rule: NotificationRule) -> None:
     if not rule.name:
         raise ValueError("Every rule must have a name.")
+
     if not rule.messages:
         raise ValueError(f"Rule {rule.name} has no messages.")
+
     # Skip message variant check for API-based horoscope rules
     if not rule.horoscope_sign and len(rule.messages) < 7:
-        raise ValueError(f"Rule {rule.name} must define at least 7 message variants.")
-    if not rule.days:
-        raise ValueError(f"Rule {rule.name} has no days.")
-    if not rule.times:
-        raise ValueError(f"Rule {rule.name} has no times.")
+        raise ValueError(
+            f"Rule {rule.name} must define at least 7 message variants."
+        )
 
     for message in rule.messages:
         if not message.strip():
-            raise ValueError(f"Rule {rule.name} includes an empty message variant.")
+            raise ValueError(
+                f"Rule {rule.name} includes an empty message variant."
+            )
+
+    # Disabled rule -> do not validate schedule
+    if rule.days is None or rule.times is None:
+        logger.info("Rule %s is disabled", rule.name)
+        return
+
     for day in rule.days:
         if day not in VALID_DAYS:
             raise ValueError(
                 f"Rule {rule.name} has invalid day '{day}'. "
                 f"Use one of {sorted(VALID_DAYS)}."
             )
+
     for clock in rule.times:
         _parse_clock(clock)
 
@@ -268,12 +278,19 @@ async def _send_rule_to_chats(application: Application, rule: NotificationRule) 
 
 def _schedule_rules(application: Application, scheduler: AsyncIOScheduler) -> None:
     tz = ZoneInfo(BOT_TIMEZONE)
+
     for rule in NOTIFICATION_RULES:
         _validate_rule(rule)
+
+        if rule.days is None or rule.times is None:
+            logger.info("Skipping disabled rule %s", rule.name)
+            continue
+
         for day in rule.days:
             for clock in rule.times:
                 hour, minute = _parse_clock(clock)
                 job_id = f"{rule.name}:{day}:{clock}"
+
                 scheduler.add_job(
                     _send_rule_to_chats,
                     trigger=CronTrigger(
@@ -288,7 +305,14 @@ def _schedule_rules(application: Application, scheduler: AsyncIOScheduler) -> No
                     coalesce=True,
                     misfire_grace_time=300,
                 )
-                logger.info("Scheduled %s on %s at %s (%s)", rule.name, day, clock, BOT_TIMEZONE)
+
+                logger.info(
+                    "Scheduled %s on %s at %s (%s)",
+                    rule.name,
+                    day,
+                    clock,
+                    BOT_TIMEZONE,
+                )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
